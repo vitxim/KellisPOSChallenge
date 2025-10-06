@@ -1,0 +1,4 @@
+EmployeeId,FirstName,LastName,Eligible,LimitPerPayPeriod
+E001,Alex,Sloan,true,200
+E002,Kim,Schuler,true,150
+E003,Jonah,Treece,false,0

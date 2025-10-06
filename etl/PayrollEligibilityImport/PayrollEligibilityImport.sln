@@ -1,0 +1,24 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.5.2.0
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PayrollEligibilityImport", "PayrollEligibilityImport.csproj", "{9884ACA9-D551-000F-DE53-6E919452A4C6}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{9884ACA9-D551-000F-DE53-6E919452A4C6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9884ACA9-D551-000F-DE53-6E919452A4C6}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9884ACA9-D551-000F-DE53-6E919452A4C6}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9884ACA9-D551-000F-DE53-6E919452A4C6}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {484A59E8-8BDD-47F1-A091-F7491D9F9D22}
+	EndGlobalSection
+EndGlobal
