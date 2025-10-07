@@ -48,7 +48,7 @@ IF OBJECT_ID('dbo.usp_CreateTicket', 'P') IS NOT NULL
     DROP PROCEDURE dbo.usp_CreateTicket;
 GO
 
-CREATE PROCEDURE dbo.usp_CreateTicket
+CREATE PROCEDURE [dbo].[usp_CreateTicket]
     @CustomerAccountNo NVARCHAR(40) = NULL,
     @Lines dbo.TicketLineInput READONLY
 AS
@@ -58,7 +58,8 @@ BEGIN
     -- Basic validation
     IF NOT EXISTS (SELECT 1 FROM @Lines)
     BEGIN
-        THROW 51001, 'No ticket lines provided.', 1;
+        RAISERROR('No ticket lines provided.', 16, 1);
+        RETURN;
     END
 
     BEGIN TRANSACTION;
@@ -75,12 +76,12 @@ BEGIN
 
             IF @CustomerID IS NULL
             BEGIN
-                THROW 51002, CONCAT('Customer not found: ', @CustomerAccountNo), 1;
+                RAISERROR('Customer not found: %s', 16, 1, @CustomerAccountNo);
+                RETURN;
             END
         END
 
-        -- b) Aggregate input lines by SKU to handle duplicate SKUs in input.
-        --    If multiple OverridePrice values exist for same SKU, choose MAX(OverridePrice) when not null.
+        -- b) Aggregate input lines by SKU to handle duplicate SKUs
         DECLARE @AggLines TABLE
         (
             Sku NVARCHAR(40) PRIMARY KEY,
@@ -96,60 +97,71 @@ BEGIN
         FROM @Lines
         GROUP BY Sku;
 
-        -- c) Join aggregated lines to items; check SKUs exist
-        ;WITH MissingSkus AS (
-            SELECT a.Sku
-            FROM @AggLines a
-            LEFT JOIN dbo.Item it ON it.Sku = a.Sku
-            WHERE it.ItemID IS NULL
-        )
-        SELECT @CustomerID = @CustomerID -- no-op to satisfy syntax
-        -- If any missing SKUs, throw error
-        IF EXISTS (SELECT 1 FROM MissingSkus)
+        -- c) Check for missing SKUs (replacing CTE with table variable)
+        DECLARE @MissingSkus TABLE (Sku NVARCHAR(40));
+
+        INSERT INTO @MissingSkus (Sku)
+        SELECT a.Sku
+        FROM @AggLines a
+        LEFT JOIN dbo.Item it ON it.Sku = a.Sku
+        WHERE it.ItemID IS NULL;
+
+        IF EXISTS (SELECT 1 FROM @MissingSkus)
         BEGIN
             DECLARE @MissingList NVARCHAR(MAX) = (
-                SELECT STRING_AGG(Sku, ', ') FROM MissingSkus
+                SELECT STRING_AGG(Sku, ', ') FROM @MissingSkus
             );
-            THROW 51003, CONCAT('The following SKU(s) do not exist: ', @MissingList), 1;
+            RAISERROR('The following SKU(s) do not exist: %s', 16, 1, @MissingList);
+            RETURN;
         END
 
-        -- d) Check inventory sufficiency (compare OnHandQty >= QtyTotal)
-        ;WITH LineWithItem AS (
-            SELECT
-                a.Sku,
-                a.QtyTotal,
-                a.OverridePrice,
-                it.ItemID,
-                it.Price AS ItemPrice,
-                it.Cost AS ItemCost,
-                it.TaxCode,
-                inv.OnHandQty
-            FROM @AggLines a
-            JOIN dbo.Item it ON it.Sku = a.Sku
-            LEFT JOIN dbo.Inventory inv ON inv.ItemID = it.ItemID
-        )
-        SELECT @CustomerID = @CustomerID -- no-op
+        -- d) Check inventory sufficiency (replacing CTE with table variable)
+        DECLARE @LineWithItem TABLE
+        (
+            Sku NVARCHAR(40),
+            QtyTotal INT,
+            OverridePrice DECIMAL(18,2),
+            ItemID INT,
+            ItemPrice DECIMAL(18,2),
+            ItemCost DECIMAL(18,2),
+            TaxCode NVARCHAR(10),
+            OnHandQty INT
+        );
+
+        INSERT INTO @LineWithItem (Sku, QtyTotal, OverridePrice, ItemID, ItemPrice, ItemCost, TaxCode, OnHandQty)
+        SELECT
+            a.Sku,
+            a.QtyTotal,
+            a.OverridePrice,
+            it.ItemID,
+            it.Price,
+            it.Cost,
+            it.TaxCode,
+            inv.OnHandQty
+        FROM @AggLines a
+        JOIN dbo.Item it ON it.Sku = a.Sku
+        LEFT JOIN dbo.Inventory inv ON inv.ItemID = it.ItemID;
+
         IF EXISTS (
             SELECT 1
-            FROM LineWithItem lwi
-            WHERE ISNULL(lwi.OnHandQty, 0) < lwi.QtyTotal
+            FROM @LineWithItem
+            WHERE ISNULL(OnHandQty, 0) < QtyTotal
         )
         BEGIN
-            -- build message listing SKUs with insufficient qty
             DECLARE @ErrBody NVARCHAR(MAX) = (
                 SELECT STRING_AGG(CONCAT(Sku, ' (Need=', QtyTotal, ', OnHand=', ISNULL(OnHandQty,0)), '; ')
-                FROM LineWithItem
+                FROM @LineWithItem
                 WHERE ISNULL(OnHandQty, 0) < QtyTotal
             );
-            THROW 51004, CONCAT('Insufficient inventory for: ', @ErrBody), 1;
+            RAISERROR('Insufficient inventory for: %s', 16, 1, @ErrBody);
+            RETURN;
         END
 
-        -- e) Compute line amounts, totals, and insert Ticket + TicketLine; decrement inventory
+        -- e) Compute line amounts and insert Ticket + TicketLine
         DECLARE @Subtotal DECIMAL(18,2) = 0;
         DECLARE @TaxAmount DECIMAL(18,2) = 0;
         DECLARE @Total DECIMAL(18,2) = 0;
 
-        -- Prepare a table variable with computed per-line values to insert
         DECLARE @ComputedLines TABLE
         (
             ItemID INT PRIMARY KEY,
@@ -164,21 +176,19 @@ BEGIN
 
         INSERT INTO @ComputedLines (ItemID, Sku, Qty, UnitPrice, LineSubtotal, TaxCode, LineTax, ItemCost)
         SELECT
-            it.ItemID,
-            a.Sku,
-            a.QtyTotal AS Qty,
-            COALESCE(a.OverridePrice, it.Price) AS UnitPrice,
-            ROUND(a.QtyTotal * COALESCE(a.OverridePrice, it.Price), 2) AS LineSubtotal,
-            it.TaxCode,
-            0.00 AS LineTax,
-            it.Cost AS ItemCost
-        FROM @AggLines a
-        JOIN dbo.Item it ON it.Sku = a.Sku;
+            lwi.ItemID,
+            lwi.Sku,
+            lwi.QtyTotal,
+            COALESCE(lwi.OverridePrice, lwi.ItemPrice),
+            ROUND(lwi.QtyTotal * COALESCE(lwi.OverridePrice, lwi.ItemPrice), 2),
+            lwi.TaxCode,
+            0.00,
+            lwi.ItemCost
+        FROM @LineWithItem lwi;
 
-        -- Compute tax per line (respecting customer tax exempt)
+        -- Tax calculation
         IF @CustomerTaxExempt = 1
         BEGIN
-            -- leave taxes as 0
             UPDATE @ComputedLines SET LineTax = 0.00;
         END
         ELSE
@@ -188,7 +198,7 @@ BEGIN
             FROM @ComputedLines cl;
         END
 
-        -- Sum totals
+        -- Totals
         SELECT
             @Subtotal = ROUND(ISNULL(SUM(LineSubtotal), 0), 2),
             @TaxAmount = ROUND(ISNULL(SUM(LineTax), 0), 2)
@@ -196,29 +206,28 @@ BEGIN
 
         SET @Total = ROUND(@Subtotal + @TaxAmount, 2);
 
-        -- Insert Ticket and get TicketID
+        -- Insert Ticket
         DECLARE @NewTicketID BIGINT;
         INSERT INTO dbo.Ticket (CustomerID, Subtotal, TaxAmount, Total)
         VALUES (@CustomerID, @Subtotal, @TaxAmount, @Total);
 
         SET @NewTicketID = SCOPE_IDENTITY();
 
-        -- Insert TicketLine rows
+        -- Insert TicketLines
         INSERT INTO dbo.TicketLine (TicketID, ItemID, Qty, UnitPrice, LineSubtotal)
         SELECT @NewTicketID, ItemID, Qty, UnitPrice, LineSubtotal
         FROM @ComputedLines
         ORDER BY ItemID;
 
-        -- Decrement inventory (use update join)
+        -- Update inventory
         UPDATE inv
         SET inv.OnHandQty = inv.OnHandQty - cl.Qty
         FROM dbo.Inventory inv
         JOIN @ComputedLines cl ON cl.ItemID = inv.ItemID;
 
-        -- Commit
         COMMIT TRANSACTION;
 
-        -- Return result (TicketID + totals)
+        -- Return result
         SELECT
             TicketID = @NewTicketID,
             Subtotal = @Subtotal,
@@ -235,7 +244,6 @@ BEGIN
         DECLARE @ErrNum INT = ERROR_NUMBER();
         DECLARE @ErrState INT = ERROR_STATE();
 
-        -- Re-throw original error
         THROW @ErrNum, @ErrMsg, @ErrState;
     END CATCH
 END;
