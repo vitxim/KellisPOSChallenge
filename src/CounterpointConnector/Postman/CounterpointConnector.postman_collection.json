@@ -1,0 +1,15 @@
+{
+  "info": { "name": "CounterpointConnector API", "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json" },
+  "item": [
+    {
+      "name": "POST /api/tickets",
+      "request": {
+        "method": "POST",
+        "header": [{"key":"Content-Type","value":"application/json"}],
+        "body": {"mode":"raw","raw":"{ \"customerAccountNo\": \"CUST1001\", \"lines\": [ { \"sku\": \"SKU1001\", \"qty\": 2 }, { \"sku\": \"SKU1002\", \"qty\": 1, \"overridePrice\": 19.99 } ] }"},
+        "url": { "raw": "http://localhost:5261/api/tickets", "protocol": "http", "host": ["localhost"], "port":"5000", "path":["api","tickets"] }
+      },
+      "response": []
+    }
+  ]
+}

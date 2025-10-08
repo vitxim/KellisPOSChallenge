@@ -1,0 +1,6 @@
+@CounterpointConnector_HostAddress = http://localhost:5261
+
+GET {{CounterpointConnector_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
