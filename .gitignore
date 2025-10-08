@@ -1,0 +1,27 @@
+# Build output
+bin/
+obj/
+out/
+
+# User-specific files
+*.user
+*.rsuser
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Visual Studio Code settings
+.vscode/
+
+# Rider settings
+.idea/
+
+# DotCover
+*.dotCover
+
+# Logs
+*.log
+
+# OS-specific
+.DS_Store
+Thumbs.db
