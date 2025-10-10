@@ -1,0 +1,91 @@
+name: Build and Test Pipeline
+
+# Trigger this workflow on every push or pull request to the main branch
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest  # Use GitHub's latest Ubuntu runner
+
+    steps:
+      # ------------------------------------------------------------
+      # 1️⃣ Check out the repository code
+      # ------------------------------------------------------------
+      # Uses the official GitHub Action that pulls your repo code into the runner
+      # 'v4' means we’re using version 4 of this action (stable and reliable)
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      # ------------------------------------------------------------
+      # 2️⃣ Set up the .NET SDK
+      # ------------------------------------------------------------
+      # Installs the .NET 8 SDK using the official action from Microsoft/GitHub
+      # Again, 'v4' ensures we’re using the latest stable version.
+      - name: Setup .NET 8 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x  # Target framework used in your solution
+
+      # ------------------------------------------------------------
+      # 3️⃣ (Optional) Validate SQL file order
+      # ------------------------------------------------------------
+      # Quick script that ensures your SQL files (01_schema.sql, 02_seed.sql, etc.)
+      # are in the expected sequence before building the app.
+      - name: Validate SQL script order
+        run: |
+          echo "Validating SQL script order..."
+          cd sql
+          expected_files="01_schema.sql 02_seed.sql 03_procs.sql 04_reports.sql"
+          for f in $expected_files; do
+            if [ ! -f "$f" ]; then
+              echo "❌ Missing SQL file: $f"
+              exit 1
+            fi
+          done
+          echo "✅ All SQL files are present and ordered correctly."
+
+      # ------------------------------------------------------------
+      # 4️⃣ Restore .NET dependencies
+      # ------------------------------------------------------------
+      - name: Restore dependencies
+        run: dotnet restore
+
+      # ------------------------------------------------------------
+      # 5️⃣ Build the solution
+      # ------------------------------------------------------------
+      - name: Build the solution
+        run: dotnet build --configuration Release --no-restore
+
+      # ------------------------------------------------------------
+      # 6️⃣ Run all unit tests
+      # ------------------------------------------------------------
+      - name: Run unit tests
+        run: dotnet test --configuration Release --no-build --verbosity normal
+        
+      # ✅ SQL order validation goes here
+      - name: Validate SQL script order
+        run: |
+          echo "Checking SQL script order..."
+          if not exist sql\01_schema.sql exit 1
+          if not exist sql\02_seed.sql exit 1
+          if not exist sql\03_procs.sql exit 1
+          if not exist sql\04_reports.sql exit 1
+          echo "SQL scripts present and ordered ✅"        
+
+      # ------------------------------------------------------------
+      # 7️⃣ Publish the API as an artifact
+      # ------------------------------------------------------------
+      # This compiles your CounterpointConnector API and uploads the published output.
+      # actions/upload-artifact@v4 means we’re using version 4 of GitHub’s artifact uploader.
+      - name: Publish API artifact
+        run: dotnet publish src/CounterpointConnector/CounterpointConnector.csproj -c Release -o ./publish
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CounterpointConnector
+          path: ./publish
